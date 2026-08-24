@@ -1,0 +1,100 @@
+# Karakeep 0.33.2 — installation complète, sans aucun service payant.
+#
+# Quatre services :
+#   web          l'application et l'API (Next.js + SQLite)
+#   chrome       navigateur sans interface : captures d'écran, archivage complet,
+#                et surtout rendu des pages en JavaScript
+#   meilisearch  moteur de recherche plein texte
+#   ollama       inférence locale pour le tagging automatique, en remplacement
+#                d'OpenAI — c'est ce qui rend l'ensemble gratuit
+#
+# Les images karakeep et karakeep-chrome sont publiées pour linux/amd64 ET
+# linux/arm64 : ce fichier fonctionne donc aussi bien sur un x86 que sur la VM
+# ARM gratuite d'Oracle Cloud.
+
+services:
+  web:
+    image: ghcr.io/karakeep-app/karakeep:${KARAKEEP_VERSION:-0.33.2}
+    restart: unless-stopped
+    volumes:
+      - data:/data
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /data # NE PAS CHANGER : le volume est monté ici.
+
+      # --- Recherche plein texte ---
+      MEILI_ADDR: http://meilisearch:7700
+
+      # --- Navigateur : c'est lui qui exécute le JavaScript des pages ---
+      BROWSER_WEB_URL: http://chrome:9222
+
+      # --- Fonctions de capture, toutes activées ---
+      CRAWLER_STORE_SCREENSHOT: "true"
+      CRAWLER_FULL_PAGE_SCREENSHOT: "true"
+      CRAWLER_FULL_PAGE_ARCHIVE: "true"
+      CRAWLER_STORE_PDF: "true"
+      CRAWLER_VIDEO_DOWNLOAD: "true"
+      CRAWLER_DOWNLOAD_BANNER_IMAGE: "true"
+      CRAWLER_ENABLE_ADBLOCKER: "true"
+      CRAWLER_ENABLE_AUTOCONSENT: "true"
+      # Le rendu d'une page lourde dépasse largement le délai par défaut.
+      CRAWLER_JOB_TIMEOUT_SEC: "120"
+      CRAWLER_NAVIGATE_TIMEOUT_SEC: "60"
+      CRAWLER_SCREENSHOT_TIMEOUT_SEC: "30"
+
+      # --- Tagging automatique par Ollama (aucune clé API, aucun coût) ---
+      OLLAMA_BASE_URL: http://ollama:11434
+      INFERENCE_TEXT_MODEL: ${INFERENCE_TEXT_MODEL:-qwen2.5:3b}
+      INFERENCE_IMAGE_MODEL: ${INFERENCE_IMAGE_MODEL:-llava:7b}
+      INFERENCE_LANG: ${INFERENCE_LANG:-french}
+      INFERENCE_ENABLE_AUTO_TAGGING: "true"
+      INFERENCE_ENABLE_AUTO_SUMMARIZATION: "true"
+      # Sans carte graphique, l'inférence tourne sur le processeur : les délais
+      # par défaut (30 s) sont bien trop courts et chaque tagging échouerait.
+      INFERENCE_JOB_TIMEOUT_SEC: "600"
+      INFERENCE_FETCH_TIMEOUT_SEC: "900"
+      # Plus de contexte = de meilleurs tags. qwen2.5 accepte largement plus que
+      # les 2048 jetons par défaut.
+      INFERENCE_CONTEXT_LENGTH: "8192"
+      OLLAMA_KEEP_ALIVE: "10m"
+    depends_on:
+      - meilisearch
+      - chrome
+      - ollama
+
+  chrome:
+    image: ghcr.io/karakeep-app/karakeep-chrome:${KARAKEEP_VERSION:-0.33.2}
+    restart: unless-stopped
+    init: true
+    command:
+      - --disable-gpu
+      - --disable-dev-shm-usage
+      - --hide-scrollbars
+      - --disable-blink-features=AutomationControlled
+      - --window-size=1440,900
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.41.0
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MEILI_NO_ANALYTICS: "true"
+    volumes:
+      - meilisearch:/meili_data
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama:/root/.ollama
+    # Port volontairement non exposé à l'extérieur : seul `web` y accède, par
+    # le réseau interne de Docker.
+
+volumes:
+  data:
+  meilisearch:
+  ollama:
